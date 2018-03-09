@@ -1,0 +1,296 @@
+---
+title: "Ratings Notebook"
+output: html_notebook
+---
+
+**Objectives**
+
+1. Develop function to build a tibble with each team's rating after each round.
+    + Factors in the season changeovers.
+    + Takes different measures into account, e.g. scoring shots and normalised margins.
+2. Develop function to calculate the rating accuracy:
+    + Win/loss accuracy.
+    + Margin accuracy.
+3. Optimise the parameters.
+4. Develop data visualisation.
+
+
+```{r setup}
+
+source("setup.R")
+
+source("gen_funcs.R", local = TRUE)
+
+# Load data for analysis
+# source("gen_usecases.R")
+
+theta <- 400
+k.fact <- 40
+p.fact <- 0.0464  # taken from The Arc Footy
+
+# Select game statistic to base ratings on
+optim.by <- "tm.Q4.lead.abs" #also tm.Q4.lead.rel.sd, tm.Q4.lead.abs
+
+```
+
+```{r load.results}
+
+afl.results <- read_rds(paste0("../", data, "/", "afl.results.rds"))
+
+# vector of seasons in the results
+seas.rng <- afl.results %>%
+   pull(seas) %>%
+   unique() %>%
+   sort(.)
+
+# vector of teams
+teams <- afl.results %>%
+  select(tm = tm1) %>%
+  distinct() %>%
+  arrange(tm) %>%
+  mutate(rating = 1500)  # Use 1500 as the initial rating
+
+```
+
+
+## Calculate Ratings after each Round
+
+```{r calc.ratings}
+
+seas.ratings <- vector("list", length(seas.rng))
+
+for (s in seq_along(seas.rng)) {
+  
+  seas.sel <- seas.rng[[s]]
+  
+  afl.res.seas <- calc.margin(afl.results) %>%
+    filter(seas == seas.sel, home == 1)
+    # We only need 1 record per game, i.e. from home team's perspective
+  
+  # vector of each round in the season
+  seas.rnds <- afl.res.seas %>%
+    pull(., rnd) %>%
+    unique(.) %>%
+    sort(.)
+  
+  # Set up object to store round by round ratings 
+  rnd.ratings <- vector("list", length(seas.rnds))
+  
+  # Set up ratings for round 1
+  if (s == 1) { init.ratings <- teams }
+  rnd.ratings[[1]] <- init.ratings
+  
+  # Move through each played round and update team ratings
+  for (r in seq_along(seas.rnds)) {
+    # print(seas.rnds[[r]])
+    rnd.ratings[[r + 1]] <- upd.ratings(afl.res.seas, seas.rnds[[r]], 
+                                        rnd.ratings[[r]], optim.by)
+  } 
+  
+  seas.ratings[[s]] <- bind_rows(rnd.ratings, .id = "rnd") %>%
+    mutate(rnd = factor(rnd, levels = seas.rnds, labels = seas.rnds),
+           rnd = as.integer(as.character(rnd)))
+  
+  # Set up last.ratings to initialise the next season, if required.
+  init.ratings <- rnd.ratings[[r + 1]]
+  
+}
+
+full.ratings <- bind_rows(seas.ratings, .id = "seas") %>%
+  mutate(seas = factor(seas, labels = seas.rng),
+         seas = as.integer(as.character(seas))) %>%
+    arrange(tm, seas, rnd) %>%
+    group_by(tm) %>%
+    mutate(Q4.diff.pred = lead(Q4.diff.pred)) %>%  # Predicted margin referred to previous round whereas rating refers to the start of that round
+    ungroup()
+
+```
+
+## Calculate the rating accuracy
+
+```{r calc.acc.res}
+
+act.with.pred(afl.results, optim.by) %>%
+  group_by(seas) %>%
+  summarise(tip.sc = sum(pred.res, na.rm = TRUE),
+            marg.diff.avg = mean(marg.diff.abs))
+
+```
+
+**Compare accuracy with betting agencies**
+
+The tipping score is comparable and my model's margin accuracy only slightly off (without any tuning yet)!
+
+Betting odds sourced from data extracted from http://www.aussportsbetting.com/data/historical-afl-results-and-odds-data/
+
+* Data copied 4 March 2018
+
+```{r bet.agencies}
+
+aus.bet.raw <- read_excel(paste0("../", data, "/", "afl.xlsx"), sheet = "Data", col_names = TRUE, skip = 1)
+
+aus.bet <- aus.bet.raw %>%
+  left_join(tm.map, by = c(`Home Team` = "tm.alt1")) %>%
+  left_join(tm.map, by = c(`Away Team` = "tm.alt1"), suffix = c(".hm", ".aw")) %>%
+  select(date = Date,
+         tm.hm,
+         tm.aw,
+         final = `Play Off Game?`,
+         Q4.diff.pred = `Home Line Close`,
+         opp.pred = `Away Line Close`,
+         tm1.Q4.tot = `Home Score`,
+         tm2.Q4.tot = `Away Score`) %>%
+  mutate(date = as_date(date),
+         seas = year(date),
+         Q4.diff.pred = -Q4.diff.pred,
+         opp.pred = -opp.pred,
+         tm1.Q4.lead.abs = tm1.Q4.tot - tm2.Q4.tot,
+         pred.res = if_else(sign(Q4.diff.pred) == sign(tm1.Q4.lead.abs), 1, 0))
+
+aus.bet %>%
+  filter(is.na(final),
+         as.character(seas) >= "2013") %>%
+  group_by(seas) %>%
+  summarise(tip.sc = sum(pred.res, na.rm = TRUE),
+            marg.diff.avg = mean(abs(Q4.diff.pred - tm1.Q4.lead.abs), na.rm = TRUE))
+
+```
+
+**Compare model with betting agency**
+
+There are no obvious problems with the model predictions compared to the betting agency predictions, based on the games with different predictions and top 10 difference in margines.
+
+Note that this code is messy and should be tied in due course!
+
+```{r comp.model.bet}
+
+act.with.pred(afl.results, optim.by)%>%
+  filter(seas == 2017, home == 1) %>%
+  left_join(aus.bet, by = c("seas", "tm" = "tm.hm", "game.date" = "date"),
+            suffix = c(".mod", ".bet")) %>%
+  select(seas:Q4.diff.pred.tm, rating.opp, pred.hm:marg.diff.abs,
+         Q4.diff.pred.bet = Q4.diff.pred,
+         pred.res.bet) %>%
+  rename(hm.mod.pred = pred.hm,
+         hm.act = act.hm,
+         mod.res = pred.res.mod,
+         mod.act.diff.abs = marg.diff.abs,
+         bet.res = pred.res.bet) %>%
+  mutate(bet.act.diff.abs = abs(Q4.diff.pred.bet - tm.Q4.lead.abs),
+         bet.mod.act.diff = abs(Q4.diff.pred.bet - Q4.diff.pred.tm)) %>%
+  filter(bet.res != mod.res) %>%
+  group_by(mod.res) %>%
+  arrange(mod.res, -bet.mod.act.diff) %>%
+  top_n(10, bet.mod.act.diff) %>%
+  select(mod.res,
+         game.date,
+         tm, opp,
+         hm.rtng = rating.hm,
+         op.rtng = rating.opp,
+         home.marg = tm.Q4.lead.abs,
+         mod.marg = Q4.diff.pred.tm,
+         bet.marg = Q4.diff.pred.bet
+         )
+
+
+```
+
+
+## Visualise the ratings
+
+```{r fig.width=13, fig.height=6}
+
+rtngs.plot.data <- calc.margin(afl.results) %>%
+  select(seas:home, !!as.name(optim.by)) %>%
+  filter(seas == 2017) %>%
+  # mutate(seas = factor(seas, levels = seas.rng, labels = seas.rng),
+  #        rnd = factor(rnd)) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
+  rename(rating.tm = rating) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
+  rename(rating.opp = rating) %>%
+  left_join(tm.map, by = c("opp" = "tm")) %>%
+  mutate(opp.abbr = tm.abbr,
+         lbl = paste0(opp.abbr, ": ", if_else(tm.Q4.lead.abs > 0, "+", ""), tm.Q4.lead.abs),
+         tm.win = factor(sign(tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")),
+         op.win = factor(sign(-tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")))
+
+# rtngs.plot.data %>%
+#   glimpse()
+
+rtngs.plot.data %>%
+  # glimpse()
+  ggplot(aes(x = rnd, y = rating.tm)) +
+  geom_hline(aes(yintercept = 1500), colour = "black", alpha = 0.5) +
+  geom_line(aes(group = tm), colour = "grey", na.rm = TRUE) +
+  geom_line(data = rtngs.plot.data %>% filter(tm == "Melbourne"),
+            aes(y = rating.tm), na.rm = TRUE, colour = "blue") +
+  geom_point(data = rtngs.plot.data %>% filter(tm == "Melbourne"),
+            aes(y = rating.tm, fill = tm.win), na.rm = TRUE, shape = 21, colour = "blue") +
+  geom_point(data = rtngs.plot.data %>% filter(tm == "Melbourne"),
+            aes(y = rating.opp, fill = op.win), na.rm = TRUE, shape = 21, colour = "black") +
+  geom_text(data = rtngs.plot.data %>% filter(tm == "Melbourne"),
+             aes(label = lbl, y = rating.opp), 
+            size = 3, angle = 90, colour = "black", hjust = "bottom",
+            nudge_y = 5, alpha = 0.75) +
+  labs(title = "Melbourne's rating through 2017",
+       x = "round", y = "rating at start of round") +
+  scale_fill_manual("", values = c("win" = "blue", "loss" = "white", "draw" = "grey")) +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(limits = c(1, 23))
+
+```
+
+**View ratings ladder**
+
+```{r ratings.ladder}
+full.ratings %>%
+  filter(seas == max(seas),
+         !is.na(rnd)) %>%
+  filter(rnd == max(rnd)) %>%
+  ggplot(aes(x = fct_reorder(tm, rating), y = rating, 
+             colour = tm, fill = tm)) +
+  geom_col(show.legend = FALSE) +
+  geom_hline(aes(yintercept = 1500), colour = "grey") +
+  coord_flip(ylim = c(1250, 1750)) +
+  labs(title = "Ratings ladder after last round",
+       x = "")
+
+```
+
+**View faceted win/loss**  
+
+```{r fig.width=13}
+
+rtngs.plot.data <- calc.margin(afl.results) %>%
+  select(seas:home, !!as.name(optim.by)) %>%
+  filter(seas == 2017) %>%
+  # mutate(seas = factor(seas, levels = seas.rng, labels = seas.rng),
+  #        rnd = factor(rnd)) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
+  rename(rating.tm = rating) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
+  rename(rating.opp = rating) %>%
+  left_join(tm.map, by = "tm")
+
+
+rtngs.plot.data %>%
+  filter(tm == "Melbourne") %>%
+  select(tm.abbr, rnd,
+         actual = tm.Q4.lead.abs,
+         model = Q4.diff.pred.tm) %>%
+  gather(key = "meas",
+         value = "margin",
+         actual:model) %>%
+  ggplot(aes(x = meas, y = margin, fill = meas)) +
+  geom_hline(aes(yintercept = 0), colour = "grey") +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  facet_grid(tm.abbr ~ rnd, switch = "y") +
+  labs(y = "", x = "") +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        strip.text.y = element_text(size = 7, angle = 180))
+
+```
+

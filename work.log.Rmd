@@ -1,0 +1,13 @@
+---
+title: "Work Logbook"
+output: html_notebook
+---
+
+### Monday 5 March
+
+* Forecast errors
+    + Biggest errors
+    
+* Visualisation
+    + Bar chart of ladder
+    + Add start and end points

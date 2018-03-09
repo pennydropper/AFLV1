@@ -1,0 +1,162 @@
+---
+title: "Data exploration"
+output: html_notebook
+---
+
+```{r setup}
+
+source("setup.R")
+
+source("gen_funcs.R")
+
+```
+
+
+### Range of forecast accuracy
+
+```{r Scoring accuracy for Melbourne}
+
+q4.acc.df() %>%
+  group_by(seas) %>%
+  mutate(acc.avg = median(tm.Q4.acc, na.rm = TRUE)) %>%
+  group_by(tm, tm.res, seas) %>%
+  mutate(games = n()) %>%
+  ungroup() %>%
+  filter(tm.res != "draw",
+         tm == "Melbourne") %>%
+  # glimpse()
+  ggplot(aes(x = tm.res, y = tm.Q4.acc)) +
+  geom_hline(aes(yintercept = acc.avg), colour = "grey") +
+  geom_boxplot() +
+  facet_grid(~ seas) +
+  geom_text(aes(label = games, y = 0.1)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Scoring accuracy for Melbourne",
+       subtitle = "Percentage of scoring shots that are goals. Grey line represents season\'s median",
+       y = "Teams scoring accuracy",
+       x = "")
+
+```
+
+There definitely is an association between accuracy and winning for Melbourne, which is expected.
+
+How is the distribution of relative accuracy?
+
+```{r Relative scoring accuracy}
+q4.acc.df() %>%
+  group_by(tm, tm.res, seas) %>%
+  mutate(games = n()) %>%
+  ungroup() %>%
+  filter(tm.res != "draw") %>% # ,
+         # tm == "Melbourne") %>%
+  ggplot(aes(x = tm.res, y = tm.rel.acc)) +
+  geom_hline(aes(yintercept = 0), colour = "grey") +
+  geom_boxplot() +
+  facet_grid(~ seas) +
+  # geom_text(aes(label = games, y = -0.6)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Relative scoring accuracy for all teams",
+       subtitle = "Percentage of scoring shots that are goals, relative to opponent",
+       y = "Teams scoring accuracy rel to opponent",
+       x = "")
+
+```
+Not surprisingly, there is a clear association between the relative scoring accuracy and whether a team wins the match.
+
+
+### Distribution of winning margins
+
+```{r}
+
+calc.margin() %>%
+  select(seas, tm, home, tm.Q4.lead.abs) %>%
+  mutate(seas = factor(seas)) %>%
+  ggplot(aes(x = tm.Q4.lead.abs)) +
+  # geom_histogram(binwidth = 6) +
+  # geom_freqpoly(binwidth = 6) +
+  geom_density(aes(colour = seas)) +
+  scale_y_continuous(labels = scales::percent) +
+  # facet_grid(~ seas)
+  labs(title = "Density plot of margins for both winners and losers",
+       x = "Winning score vs. losing score")
+
+```
+This chart doesn't really tell me much, other than 2017 and 2014 tended to have more close games than the other seasons.
+
+What about if we look at the distribution of margins.
+
+```{r}
+
+calc.margin() %>%
+  filter(home == 1) %>%
+  mutate(Q4.margin.abs = abs(tm.Q4.lead.abs)) %>%
+  ggplot(aes(x = Q4.margin.abs)) +
+  geom_histogram(binwidth = 6) +
+  # geom_freqpoly(binwidth = 6) +
+  # geom_density(aes(colour = seas)) +
+  # scale_y_continuous(labels = scales::percent)
+  facet_wrap(~ seas) +
+  labs(title = "Frequency of different margins")
+
+```
+
+```{r Frequency of different margins absolute}
+calc.margin() %>%
+  filter(home == 1) %>%
+  mutate(Q4.margin.abs = abs(tm.Q4.lead.abs),
+         seas = factor(seas),
+         home = factor(home, levels = c(0, 1), labels = c("away", "home"))) %>%
+  ggplot(aes(x = Q4.margin.abs, colour = seas)) +
+  stat_ecdf(geom = "step", pad = FALSE) +
+  labs(title = "Frequency of different margins",
+       y = "Cumulative number of games",
+       x = "Final margin") +
+  coord_cartesian(xlim = c(0, 75)) +
+  scale_y_continuous(labels = scales::percent,
+                     breaks = seq(0, 1, by = 0.2)) +
+  facet_wrap( ~ home)
+
+```
+
+```{r Frequency of different margins relative}
+calc.margin() %>%
+  filter(home == 1) %>%
+  mutate(seas = factor(seas),
+         home = factor(home, levels = c(0, 1), labels = c("away", "home"))) %>%
+  ggplot(aes(x = tm.Q4.lead.rel, colour = seas)) +
+  geom_vline(aes(xintercept = 0.5), colour = "grey") +
+  stat_ecdf(geom = "step", pad = FALSE) +
+  labs(title = "Frequency of home team's relative score",
+       y = "Cumulative number of games",
+       x = "Home team's share of the total score, i.e. >50% = win") +
+  coord_cartesian(xlim = c(0.1, 0.9)) +
+  scale_y_continuous(labels = scales::percent,
+                     breaks = seq(0, 1, by = 0.2)) +
+  scale_x_continuous(labels = scales::percent,
+                     breaks = seq(0, 1, by = 0.1)) +
+  geom_hline(aes(yintercept = 0.5), colour = "grey") +
+  facet_wrap( ~ home)
+
+```
+
+
+```{r Frequency of different margins relative home vs away}
+calc.margin() %>%
+  # filter(home == 1) %>%
+  mutate(seas = factor(seas),
+         home = factor(home, levels = c(0, 1), labels = c("away", "home"))) %>%
+  ggplot(aes(x = tm.Q4.lead.rel, colour = home)) +
+  geom_hline(aes(yintercept = 0.5), colour = "grey") +
+  stat_ecdf(geom = "step", pad = FALSE) +
+  labs(title = "Frequency of home teams relative score",
+       y = "Cumulative number of games",
+       x = "Home team's share of the total score, i.e. >50% = win") +
+  coord_cartesian(xlim = c(0.1, 0.9)) +
+  scale_y_continuous(labels = scales::percent,
+                     breaks = seq(0, 1, by = 0.2)) +
+  scale_x_continuous(labels = scales::percent,
+                     breaks = seq(0, 1, by = 0.2)) +
+  geom_vline(aes(xintercept = 0.5), colour = "grey") +
+  facet_wrap( ~ seas)
+
+```
