@@ -139,6 +139,7 @@ upd.ratings <- function(games.played, seas.rnd, rnd.ratings, p.diff.act = "tm.Q4
 }
 
 
+
 act.with.pred <- function(res.df = afl.results, p.optim.by = optim.by) {
   # Merges the actual results with the predicted results
   
@@ -159,6 +160,30 @@ act.with.pred <- function(res.df = afl.results, p.optim.by = optim.by) {
   
 }
 
-act.with.pred(afl.results, optim.by) %>%
-  select(seas == 2017) %>%
+# act.with.pred(afl.results, optim.by) %>%
+#   select(seas == 2017) %>%
+#   glimpse()
+
+
+aus.bet.merge <- function(df = aus.bet) {
+  # "gathers" the ausbet results
+  
+  bind_rows(
+    df %>%
+      select(game.date = date, seas, final, tm = tm.hm, opp = tm.aw, bet.pred.marg = Q4.diff.pred) %>%
+      mutate(hm = 1),
+    df %>%
+      select(game.date = date, seas, final, tm = tm.aw, opp = tm.hm, bet.pred.marg = opp.pred) %>%
+      mutate(hm = 0)
+  )
+  
+}
+
+aus.bet.merge() %>%
+  filter(tm == "Adelaide", seas == 2017) %>%
+  arrange(desc(game.date))
+
+aus.bet %>%
+  filter(date == ymd("2017/8/27"),
+         tm.aw == "Adelaide") %>%
   glimpse()

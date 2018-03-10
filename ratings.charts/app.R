@@ -11,7 +11,7 @@ seas.sel <- 2017
 ui <- fluidPage(
    
    # Application title
-   titlePanel("AFL Ratings Review"),
+   titlePanel("AFL Teams' Ratings Review"),
    
    # Select team
    fluidRow(
@@ -22,13 +22,14 @@ ui <- fluidPage(
        width = 5,
        selectInput("tm.sel",
                    "Select team to highlight",
-                   tm.map$tm)
+                   tm.map$tm,
+                   selected = "Melbourne")
      ),
      column(
        width = 4,
        selectInput("seas",
                    "Select season to chart",
-                   2013:2017,
+                   2017:2013,
                    selected = seas.sel)
      )
      
@@ -87,7 +88,9 @@ server <- function(input, output) {
            x = "round", y = "rating at start of round") +
       scale_fill_manual("", values = c("win" = "blue", "loss" = "white", "draw" = "grey")) +
       theme(legend.position = "bottom") +
-      scale_x_continuous(limits = c(1, 23), breaks = 1:23, minor_breaks = NULL)
+      scale_x_continuous(limits = c(1, 23), breaks = 1:23, minor_breaks = NULL) +
+      scale_y_continuous(breaks = seq(1200, 1800, 100)) +
+      coord_cartesian(ylim = c(1250, 1750))
 
     
   })

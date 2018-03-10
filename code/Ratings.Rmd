@@ -260,53 +260,190 @@ full.ratings %>%
 
 **View faceted win/loss**  
 
-```{r fig.width=10}
+```{r fig.width=13}
 
 rtngs.plot.data <- calc.margin(afl.results) %>%
   select(seas:home, !!as.name(optim.by)) %>%
   filter(seas == 2017) %>%
-  # mutate(seas = factor(seas, levels = seas.rng, labels = seas.rng),
-  #        rnd = factor(rnd)) %>%
   left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
   rename(rating.tm = rating) %>%
   left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
   rename(rating.opp = rating) %>%
   left_join(tm.map, by = "tm") %>%
+  left_join(aus.bet.merge(aus.bet), by = c("game.date" = "game.date", "tm" = "tm")) %>%
   mutate(mod.corr = factor(sign(tm.Q4.lead.abs * Q4.diff.pred.tm),
                            levels = -1:1,
-                           labels = c("Inc", "Draw", "Corr")))
+                           labels = c("Inc", "Draw", "Corr")),
+         bet.tip = sign(tm.Q4.lead.abs * bet.pred.marg),
+         bet.tip = factor(2 - bet.tip, levels = 1:3, labels = c("correct", "draw", "incorrect")))
 
 
 rtngs.plot.data %>%
-  # filter(tm == "Melbourne") %>%
+  # filter(tm == "North Melbourne", rnd == 15) %>%
   select(tm.abbr, rnd,
          actual = tm.Q4.lead.abs,
          model = Q4.diff.pred.tm,
+         bet = bet.pred.marg,
          mod.corr,
+         bet.tip,
          rating.tm) %>%
   gather(key = "meas",
          value = "margin",
-         actual:model) %>%
+         actual:bet) %>%
   mutate(tm.abbr = fct_reorder2(tm.abbr, rnd, rating.tm),
-         meas = factor(meas, labels = c("model", "actual"))) %>%
+         meas = factor(meas, levels = c("bet", "model", "actual"))) %>%
   ggplot(aes(x = meas, y = margin, fill = meas)) +
   scale_y_continuous(breaks = seq(-60, 60, 24)) +
   geom_rect(xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, 
-            aes(fill = mod.corr), alpha = 0.25, show.legend = FALSE) +
+            aes(fill = mod.corr, linetype = bet.tip), alpha = 0.25, colour = "black") +
   geom_hline(aes(yintercept = 0), colour = "black", alpha = 0.5) +
   geom_bar(stat = "identity") +
   scale_fill_manual("",
-                      values = c("actual" = "#01665e", "model" = "#d8b365", "Corr" = "#5ab4ac", "Inc" = "white", "Draw" = "grey"),
-                      labels = c("actual" = "actual", "model" = "pred", rep("", 3))) +
-  coord_flip() +
-  labs(x = "", y = "") +
+                      values = c("actual" = "#01665e", "model" = "#8c510a", 
+                                 "bet" = "#d8b365", "Corr" = "#5ab4ac", "Inc" = "white", "Draw" = "grey"),
+                      labels = c("actual" = "actual margin", "model" = "model\`s margin", 
+                                 "bet" = "bet\'s margin", "Corr" = "model correct", "Inc" = "", "Draw" = "draw")) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(subtitle = "each tick = 4 goals", y = "",
+       title = "2017 Round by Round Margins and Tipping Accuracy") +
   facet_grid(tm.abbr ~ rnd, switch = "y") +
   theme(axis.text.x = element_blank(),
         axis.ticks.y = element_blank(),
         axis.text.y = element_blank(),
         strip.text.y = element_text(size = 7, angle = 180),
         legend.position = "bottom",
-        legend.text = element_text(size = 7))
+        legend.text = element_text(size = 7),
+        legend.title = element_text(size = 7))
+
 
 ```
 
+
+### Plot Round-by-Round Scores
+
+**Round by Round Score**  
+
+```{r calc.round.by.round}
+
+rnd.by.rnd.res <- act.with.pred(afl.results, optim.by)%>%
+  filter(seas == 2017, home == 1) %>%
+  left_join(aus.bet, by = c("seas", "tm" = "tm.hm", "game.date" = "date"),
+            suffix = c(".mod", ".bet")) %>%
+  select(seas:Q4.diff.pred.tm, rating.opp, pred.hm:marg.diff.abs,
+         Q4.diff.pred.bet = Q4.diff.pred,
+         pred.res.bet) %>%
+  rename(hm.mod.pred = pred.hm,
+         hm.act = act.hm,
+         mod.res = pred.res.mod,
+         mod.act.diff.abs = marg.diff.abs,
+         bet.res = pred.res.bet) %>%
+  mutate(bet.act.diff.abs = abs(Q4.diff.pred.bet - tm.Q4.lead.abs)) %>%
+  group_by(seas, rnd) %>%
+  summarise(games = n(),
+            mod.res.sc = sum(mod.res, na.rm = TRUE),
+            bet.res.sc = sum(bet.res, na.rm = TRUE),
+            mod.marg.mad = mean(mod.act.diff.abs, na.rm = TRUE),
+            bet.marg.mad = mean(bet.act.diff.abs, na.rm = TRUE)) %>%
+  group_by(seas) %>%
+  arrange(rnd) %>%
+  mutate(games.cum = cumsum(games),
+         mod.res.sc.cum = cumsum(mod.res.sc),
+         bet.res.sc.cum = cumsum(bet.res.sc),
+         mod.marg.mad.avg = cumsum(mod.marg.mad * games) / games.cum,
+         bet.marg.mad.avg = cumsum(bet.marg.mad * games) / games.cum) %>%
+  ungroup()
+
+rnd.by.rnd.res %>%
+  gather(measure, score, mod.res.sc, bet.res.sc) %>%
+  mutate(measure = fct_recode(measure, "model" = "mod.res.sc", 
+                              "bet" = "bet.res.sc")) %>%
+  ggplot(aes(x = rnd, y = score, fill = measure)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(breaks = 0:9) +
+  scale_x_continuous(breaks = 1:23) +
+  labs(title = "Round by round tipping score",
+       x = "") +
+  scale_fill_manual("",
+                    values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  theme(legend.position = "bottom")
+
+```
+
+**Cumulative Tipping Score**  
+
+This isn't particularly useful!
+```{r cum.tip.score}
+
+rnd.by.rnd.res %>%
+  ggplot(aes(x = rnd)) +
+  geom_line(aes(y = bet.res.sc.cum, colour = "bet")) +
+  geom_line(aes(y = mod.res.sc.cum, colour = "model")) +
+  scale_colour_manual("",
+                    values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  scale_x_continuous(breaks = 1:23, minor_breaks = NULL) +
+  labs(title = "Cumulative tipping score",
+       x = "", y = "") +
+  theme(legend.position = "bottom")
+
+  
+
+```
+
+**Model vs Betting Agency**  
+
+```{r cum.model.vs.bet}
+
+rnd.by.rnd.res %>%
+  mutate(bet.vs.mod = bet.res.sc.cum - mod.res.sc.cum) %>%
+  ggplot(aes(x = rnd)) +
+  geom_hline(aes(yintercept = 0), colour = "grey") +
+  geom_line(aes(y = bet.vs.mod)) +
+  geom_point(aes(y = bet.vs.mod)) +
+  scale_x_continuous(breaks = 1:23, minor_breaks = NULL) +
+  labs(title = "Cumulative betting agency vs model tipping score",
+       x = "", y = "Betting agency score vs model")
+
+  
+
+```
+
+
+**Model vs Betting Agency Margin**  
+
+```{r margin.model.vs.bet}
+
+rnd.by.rnd.res %>%
+  gather(measure, score, bet.marg.mad.avg, mod.marg.mad.avg) %>%
+  mutate(measure = fct_recode(measure, "model" = "mod.marg.mad.avg", 
+                              "bet" = "bet.marg.mad.avg")) %>%
+  # mutate(bet.vs.mod = bet.marg.mad.avg - mod.marg.mad.avg) %>%
+  ggplot(aes(x = rnd, y = score, colour = measure)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:23, minor_breaks = NULL) +
+  scale_colour_manual("",
+                      values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  labs(title = "Betting agency vs model margin forecast",
+       subtitle = "Average absolute difference between forecast and actual margin - lower is better",
+       x = "", y = "Difference between forecast and actual margin")
+
+  
+
+```
+
+**Model vs Betting Agency Margin**  
+
+```{r cum.marg.model.vs.bet}
+
+rnd.by.rnd.res %>%
+  mutate(bet.vs.mod = bet.marg.mad.avg - mod.marg.mad.avg) %>%
+  ggplot(aes(x = rnd)) +
+  geom_hline(aes(yintercept = 0), colour = "grey") +
+  geom_line(aes(y = bet.vs.mod)) +
+  scale_x_continuous(breaks = 1:23, minor_breaks = NULL) +
+  labs(title = "Cumulative betting agency vs model margin forecast",
+       subtitle = "Average absolute difference between forecast and actual margin - lower is better",
+       x = "", y = "Betting agency score vs model")
+
+  
+
+```
