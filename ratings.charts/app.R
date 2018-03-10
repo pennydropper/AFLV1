@@ -2,18 +2,10 @@
 
 library(shiny)
 
-seas.sel <- 2016
+seas.sel <- 2017
 
-rtngs.plot.data <- calc.margin(afl.results) %>%
-  select(seas:home, !!as.name(optim.by)) %>%
-  filter(seas == seas.sel) %>%
-  left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
-  rename(rating.tm = rating) %>%
-  left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
-  rename(rating.opp = rating) %>%
-  left_join(tm.map, by = c("opp" = "tm")) %>%
-  mutate(opp.abbr = tm.abbr,
-         lbl = paste0(opp.abbr, ": ", if_else(tm.Q4.lead.abs > 0, "+", ""), tm.Q4.lead.abs))
+# WILL NEED STEPS TO IMPORT RATINGS DATA etc
+
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -27,10 +19,17 @@ ui <- fluidPage(
        width = 2
      ),
      column(
-       width = 11,
+       width = 5,
        selectInput("tm.sel",
                    "Select team to highlight",
                    tm.map$tm)
+     ),
+     column(
+       width = 4,
+       selectInput("seas",
+                   "Select season to chart",
+                   2013:2017,
+                   selected = seas.sel)
      )
      
    ),
@@ -56,22 +55,40 @@ server <- function(input, output) {
   
   output$rtng.lines <- renderPlot({
     
+    rtngs.plot.data <- calc.margin(afl.results) %>%
+      select(seas:home, !!as.name(optim.by)) %>%
+      filter(seas == input$seas) %>%
+      left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
+      rename(rating.tm = rating) %>%
+      left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
+      rename(rating.opp = rating) %>%
+      left_join(tm.map, by = c("opp" = "tm")) %>%
+      mutate(opp.abbr = tm.abbr,
+             lbl = paste0(opp.abbr, ": ", if_else(tm.Q4.lead.abs > 0, "+", ""), tm.Q4.lead.abs),
+             tm.win = factor(sign(tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")),
+             op.win = factor(sign(-tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")))
+    
     rtngs.plot.data %>%
-      ggplot(aes(x = rnd, y = rating.tm, colour = tm)) +
+      # filter(seas == input$seas) %>%
+      ggplot(aes(x = rnd, y = rating.tm, group = tm)) +
       geom_hline(aes(yintercept = 1500), colour = "black", alpha = 0.5) +
       geom_line(aes(group = tm), colour = "grey", na.rm = TRUE) +
       geom_line(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
-                aes(y = rating.tm), na.rm = TRUE, colour = "blue") +
+                aes(y = rating.tm, group = tm), na.rm = TRUE, colour = "blue") +
       geom_point(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
-                 aes(y = rating.tm, colour = tm), na.rm = TRUE, colour = "blue") +
+                 aes(y = rating.tm, fill = tm.win), na.rm = TRUE, shape = 21, colour = "blue") +
       geom_point(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
-                 aes(y = rating.opp), colour = "black", na.rm = TRUE) +
+                 aes(y = rating.opp, fill = op.win), na.rm = TRUE, shape = 21, colour = "black") +
       geom_text(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
-                aes(label = lbl, y = rating.opp), 
+                aes(label = lbl, y = rating.opp),
                 size = 5, angle = 90, colour = "black", hjust = "bottom",
                 nudge_y = 10, alpha = 0.75) +
-      labs(title = paste0(input$tm.sel, "'s rating through 2017"),
-           x = "round", y = "rating at start of round")
+      labs(title = paste0(input$tm.sel, "'s rating through ", input$seas),
+           x = "round", y = "rating at start of round") +
+      scale_fill_manual("", values = c("win" = "blue", "loss" = "white", "draw" = "grey")) +
+      theme(legend.position = "bottom") +
+      scale_x_continuous(limits = c(1, 23), breaks = 1:23, minor_breaks = NULL)
+
     
   })
    
@@ -79,7 +96,7 @@ server <- function(input, output) {
      # Plot bar chart of final ratings
 
      full.ratings %>%
-       filter(seas == seas.sel,
+       filter(seas == input$seas,
               !is.na(rnd)) %>%
        filter(rnd == max(rnd)) %>%
        ggplot(aes(x = fct_reorder(tm, rating), y = rating, 
@@ -87,7 +104,7 @@ server <- function(input, output) {
        geom_col(show.legend = FALSE) +
        geom_hline(aes(yintercept = 1500), colour = "grey") +
        coord_flip(ylim = c(1250, 1750)) +
-       labs(title = paste0("Ratings ladder after last round of season ", seas.sel),
+       labs(title = paste0("Ratings ladder after last round of season ", input$seas),
             x = "")     
        
    })

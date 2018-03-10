@@ -11,3 +11,10 @@ output: html_notebook
 * Visualisation
     + Bar chart of ladder
     + Add start and end points
+    
+    
+    
+### Saturday 10 March
+
+* Clean up matrix plot of tipping.
+* Cumulative tipping through the season.

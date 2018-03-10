@@ -260,7 +260,7 @@ full.ratings %>%
 
 **View faceted win/loss**  
 
-```{r fig.width=13}
+```{r fig.width=10}
 
 rtngs.plot.data <- calc.margin(afl.results) %>%
   select(seas:home, !!as.name(optim.by)) %>%
@@ -271,26 +271,42 @@ rtngs.plot.data <- calc.margin(afl.results) %>%
   rename(rating.tm = rating) %>%
   left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
   rename(rating.opp = rating) %>%
-  left_join(tm.map, by = "tm")
+  left_join(tm.map, by = "tm") %>%
+  mutate(mod.corr = factor(sign(tm.Q4.lead.abs * Q4.diff.pred.tm),
+                           levels = -1:1,
+                           labels = c("Inc", "Draw", "Corr")))
 
 
 rtngs.plot.data %>%
-  filter(tm == "Melbourne") %>%
+  # filter(tm == "Melbourne") %>%
   select(tm.abbr, rnd,
          actual = tm.Q4.lead.abs,
-         model = Q4.diff.pred.tm) %>%
+         model = Q4.diff.pred.tm,
+         mod.corr,
+         rating.tm) %>%
   gather(key = "meas",
          value = "margin",
          actual:model) %>%
+  mutate(tm.abbr = fct_reorder2(tm.abbr, rnd, rating.tm),
+         meas = factor(meas, labels = c("model", "actual"))) %>%
   ggplot(aes(x = meas, y = margin, fill = meas)) +
-  geom_hline(aes(yintercept = 0), colour = "grey") +
+  scale_y_continuous(breaks = seq(-60, 60, 24)) +
+  geom_rect(xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, 
+            aes(fill = mod.corr), alpha = 0.25, show.legend = FALSE) +
+  geom_hline(aes(yintercept = 0), colour = "black", alpha = 0.5) +
   geom_bar(stat = "identity") +
+  scale_fill_manual("",
+                      values = c("actual" = "#01665e", "model" = "#d8b365", "Corr" = "#5ab4ac", "Inc" = "white", "Draw" = "grey"),
+                      labels = c("actual" = "actual", "model" = "pred", rep("", 3))) +
   coord_flip() +
+  labs(x = "", y = "") +
   facet_grid(tm.abbr ~ rnd, switch = "y") +
-  labs(y = "", x = "") +
   theme(axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
         axis.text.y = element_blank(),
-        strip.text.y = element_text(size = 7, angle = 180))
+        strip.text.y = element_text(size = 7, angle = 180),
+        legend.position = "bottom",
+        legend.text = element_text(size = 7))
 
 ```
 
