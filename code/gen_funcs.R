@@ -94,6 +94,7 @@ calc.margin <- function(res.df = afl.results) {
 
 upd.ratings <- function(games.played, seas.rnd, rnd.ratings, p.diff.act = "tm.Q4.lead.abs") {
   # Updates the ratings after the round is played
+  # Logic adapted from https://thearcfooty.com/2016/12/29/introducing-the-arcs-ratings-system/ in Feb-18
   
   df <- games.played %>%
     filter(rnd == seas.rnd,
@@ -103,33 +104,36 @@ upd.ratings <- function(games.played, seas.rnd, rnd.ratings, p.diff.act = "tm.Q4
     rename(rtng.tm1.i = rating) %>%
     left_join(rnd.ratings, by = c("opp" = "tm")) %>%
     rename(rtng.tm2.i = rating) %>%
-    # select(-tm1, -tm2) %>%   # REMOVE AFTER DEVELOPING
     mutate(rtng.diff = rtng.tm1.i - rtng.tm2.i,
            res.pred = (1 + 10^(-rtng.diff / theta))^-1,
-           Q4.diff.act = !!as.name(p.diff.act),  # ready with !!as.name(p.var)
+           Q4.diff.act = !!as.name(p.diff.act),
            Q4.diff.pred = -log((1 - res.pred) / res.pred) / p.fact,
            res.act = 1 / (1 + exp(-p.fact * Q4.diff.act)),
            rtng.tm1.o = rtng.tm1.i + k.fact * (res.act - res.pred),
            rtng.tm2.o = rtng.tm2.i - k.fact * (res.act - res.pred)) %>%
-    select(rnd, tm, opp, rtng.tm1.o, rtng.tm2.o, Q4.diff.pred)
+    select(rnd, tm, opp, rtng.tm1.o, rtng.tm2.o, Q4.diff.pred, win.prob = res.pred)
   
   rtng.tm1 <- df %>%
     select(tm = tm,
            rating = rtng.tm1.o,
            Q4.diff.pred,
+           win.prob,
            round = rnd)
   
   rtng.tm2 <- df %>%
     select(tm = opp,
            rating = rtng.tm2.o,
            Q4.diff.pred,
+           win.prob,
            round = rnd) %>%
-    mutate(Q4.diff.pred = -Q4.diff.pred)
+    mutate(Q4.diff.pred = -Q4.diff.pred,
+           win.prob = 1 - win.prob)
   
   rtng.tm.bye <- rnd.ratings %>%
     anti_join(rtng.tm1, by = "tm") %>%
     anti_join(rtng.tm2, by = "tm") %>%
     mutate(Q4.diff.pred = NA,
+           win.prob = NA,
            round = seas.rnd)
   
   bind_rows(rtng.tm1,
@@ -137,6 +141,7 @@ upd.ratings <- function(games.played, seas.rnd, rnd.ratings, p.diff.act = "tm.Q4
             rtng.tm.bye)
   
 }
+
 
 
 

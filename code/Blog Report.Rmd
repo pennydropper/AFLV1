@@ -1,0 +1,40 @@
+---
+title: "AFL Tipping Blog Report"
+output: html_notebook
+---
+
+
+## Introduction
+
+
+## AFL Tipping for Beginners
+
+Here's a quick introduction to AFL tipping for people with more diverse interests than me.
+
+The AFL competition consists of 18 teams across Australia who each play 22 games over 23 rounds in a season that runs from mid-March to August.  In recent seasons, most teams have one bye around mid-season.  The top 8 teams after round 23 the compete in the "Finals", with a Grand Final played at the end of September or start of October.
+
+
+
+## Basic statistics about AFL Games
+
+
+
+## The Tipping Model
+
+
+### Comparing with Betting Agencies
+
+
+## How Good is the Model?
+
+
+
+## This is just the beginning
+
+Optimising the parameters.
+
+Introducing new parameters to the model.
+
+Using more advanced algorithms.
+
+### If only I can get more data

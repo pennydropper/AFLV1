@@ -18,3 +18,12 @@ output: html_notebook
 
 * Clean up matrix plot of tipping.
 * Cumulative tipping through the season.
+
+
+
+### Sunday 11 March
+
+* Box plot of margins
+* Histogram of proportion of wins by probability bin.
+* Scatterplot of predicted and actual margins
+* Scatterplot of model and betting margins
