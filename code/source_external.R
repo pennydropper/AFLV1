@@ -62,12 +62,12 @@ aus.bet <- aus.bet.raw %>%
          tm1.Q4.lead.abs = tm1.Q4.tot - tm2.Q4.tot,
          pred.res = if_else(sign(Q4.diff.pred) == sign(tm1.Q4.lead.abs), 1, 0))
 
-aus.bet %>%
-  filter(is.na(final),
-         as.character(seas) >= "2013") %>%
-  group_by(seas) %>%
-  summarise(tip.sc = sum(pred.res, na.rm = TRUE),
-            marg.diff.avg = mean(Q4.diff.pred - tm1.Q4.lead.abs, na.rm = TRUE))
+# aus.bet %>%
+#   filter(is.na(final),
+#          as.character(seas) >= "2013") %>%
+#   group_by(seas) %>%
+#   summarise(tip.sc = sum(pred.res, na.rm = TRUE),
+#             marg.diff.avg = mean(Q4.diff.pred - tm1.Q4.lead.abs, na.rm = TRUE))
 
 # Source AFL Results ------------------------------------------------------
 

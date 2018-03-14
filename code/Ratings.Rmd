@@ -105,6 +105,9 @@ full.ratings <- bind_rows(seas.ratings, .id = "seas") %>%
            win.prob = lead(win.prob)) %>%  # Predicted margin referred to previous round whereas rating refers to the start of that round
     ungroup()
 
+# write_rds(full.ratings, paste0(data, "full.ratings.rds"))
+# full.ratings <- read_rds(paste0(data, "full.ratings.rds"))
+
 ```
 
 ## Calculate the rating accuracy
@@ -296,7 +299,7 @@ rtngs.plot.data %>%
   ggplot(aes(x = meas, y = margin, fill = meas)) +
   scale_y_continuous(breaks = seq(-60, 60, 24)) +
   geom_rect(xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, 
-            aes(fill = mod.corr, linetype = bet.tip), alpha = 0.25, colour = "black") +
+            aes(fill = mod.corr, linetype = bet.tip), alpha = 0.25, colour = "black", show.legend = FALSE) +
   geom_hline(aes(yintercept = 0), colour = "black", alpha = 0.5) +
   geom_bar(stat = "identity") +
   scale_fill_manual("",
@@ -494,16 +497,86 @@ act.w.pred.bet %>%
 ```
 
 
+#### Multi-season results
+
+
+```{r multi-season.res.tips}
+
+act.w.pred.bet <- act.with.pred(afl.results, optim.by)%>%
+  filter(home == 1) %>%
+  left_join(aus.bet, by = c("seas", "tm" = "tm.hm", "game.date" = "date"),
+            suffix = c(".mod", ".bet")) %>%
+  select(seas:Q4.diff.pred.tm, rating.opp, pred.hm:marg.diff.abs,
+         Q4.diff.pred.bet = Q4.diff.pred,
+         pred.res.bet) %>%
+  rename(hm.mod.pred = pred.hm,
+         hm.act = act.hm,
+         mod.res = pred.res.mod,
+         mod.act.diff.abs = marg.diff.abs,
+         bet.res = pred.res.bet) %>%
+  mutate(bet.act.diff.abs = abs(Q4.diff.pred.bet - tm.Q4.lead.abs))
+
+# act.w.pred.bet %>% glimpse()
+
+act.w.pred.bet %>%
+  select(seas, rnd, mod.res, bet.res) %>%
+  gather(key = pred.src, value = pred.sc, mod.res, bet.res) %>%
+  # mutate( rnd = factor(rnd),
+  mutate( pred.src = fct_recode(pred.src, "model" = "mod.res", 
+                              "bet" = "bet.res"),
+          rnd.rng = factor((rnd - 1) %/% 5, levels = 0:4, labels = c("1-5", "6-10", "11-15", "16-20", "20-23"))) %>%
+  group_by(seas, pred.src) %>%
+  summarise(pred.res = sum(pred.sc, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot(aes(x = factor(seas), y = pred.res, fill = pred.src)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_cartesian(ylim = c(120, 150)) +
+  scale_fill_manual("",
+                      values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  labs(title = "Season scores for model versus betting agency",
+       subtitle = "Higher scores are better",
+       y = "Correct number of tips",
+       x = "Season")
+
+```
+
+
+
+```{r multi-season.res.marg}
+
+act.w.pred.bet %>%
+  select(seas, rnd, mod.act.diff.abs, bet.act.diff.abs) %>%
+  gather(key = pred.src, value = pred.act.diff, mod.act.diff.abs, bet.act.diff.abs) %>%
+  # mutate( rnd = factor(rnd),
+  mutate( pred.src = fct_recode(pred.src, "model" = "mod.act.diff.abs", 
+                              "bet" = "bet.act.diff.abs"),
+          rnd.rng = factor((rnd - 1) %/% 5, levels = 0:4, labels = c("1-5", "6-10", "11-15", "16-20", "20-23"))) %>%
+  group_by(seas, pred.src) %>%
+  mutate(pred.act.mad = mean(pred.act.diff, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot(aes(x = factor(seas), y = pred.act.diff, colour = pred.src)) +
+  geom_boxplot(na.rm = TRUE) +  # I attempted using cut_interval but the colour dimension got lost
+  geom_point(aes(y = pred.act.mad), position = position_dodge(.8)) +
+  scale_colour_manual("",
+                      values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  labs(title = "Distribution of predicted margin errors",
+       subtitle = "Lower scores are better. Average errors shown inside boxes",
+       y = "Predicted margin error",
+       x = "Rounds")
+
+```
+
+
 
 #### Histogram of proportion of wins by probability bin
 
 ```{r chart.prob.preds}
 
 pred.bins <- act.with.pred(afl.results, optim.by) %>%
-  filter(seas == 2017) %>%
+  # filter(seas == 2017, tm == "Melbourne") %>%
   arrange(rnd) %>%
   select(seas, rnd, tm, opp, win.prob.tm, act.hm) %>%
-  mutate(prob.bin = ((win.prob.tm - 0.025) %/% 0.05) * 0.05,
+  mutate(prob.bin = (round(win.prob.tm / 0.05) * 0.05),
          win.tm = (act.hm > 0)) %>%
   group_by(seas, prob.bin) %>%
   summarise(win.avg = mean(win.tm, na.rm = TRUE),
@@ -511,10 +584,9 @@ pred.bins <- act.with.pred(afl.results, optim.by) %>%
   ungroup()
 
 pred.bins %>%
-  # glimpse()
-  # mutate(prob.bin = factor(prob.bin)) %>%
+  # filter(seas == 2017) %>%
   ggplot(aes(prob.bin, win.avg)) +
-  geom_col(stat = "identity", width = 0.03) +
+  geom_col(width = 0.03) +
   geom_abline(slope = 1, intercept = 0) +
   geom_text(aes(label = games, y = -0.1), size = 3) +
   coord_cartesian(xlim = c(0, 1)) +
@@ -522,7 +594,30 @@ pred.bins %>%
   scale_y_continuous(labels = scales::percent, expand = c(0, 0.05)) +
   labs(title = "Probability performance",
        x = "Estimated probability of the home team winning",
-       y = "Share of games won") 
+       y = "Share of games won") +
+  facet_wrap( ~ seas)
+
+```
+
+#### Histogram of probabilities
+
+```{r hist.probs, warning=FALSE}
+
+act.with.pred(afl.results, optim.by) %>%
+  filter(seas > 2013) %>%
+  arrange(rnd) %>%
+  select(seas, rnd, tm, opp, win.prob.tm, act.hm) %>%
+  mutate(act.hm = factor(act.hm, levels = -1:1, labels = c("loss", "draw", "win")) ) %>%
+         # win.prob.tm = round(win.prob.tm / 0.05) * 0.05) %>%
+  ggplot(aes(x = win.prob.tm)) +
+  geom_bar(stat = "count", aes(fill = act.hm), colour = "grey", binwidth = 0.1) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_x_continuous(breaks = seq(0, 1, .1)) +
+  scale_fill_manual("", values = c("loss" = "#f5f5f5", "draw" = "#c7eae5", "win" = "#01665e")) +
+  labs(title = "Distribution of model's probabilities",
+       x = "Estimated probability of home team win",
+       y = "Frequency through the season") +
+  facet_wrap( ~ seas)
 
 ```
 

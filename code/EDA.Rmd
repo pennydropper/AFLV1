@@ -22,16 +22,15 @@ q4.acc.df() %>%
   group_by(tm, tm.res, seas) %>%
   mutate(games = n()) %>%
   ungroup() %>%
-  filter(tm.res != "draw",
-         tm == "Melbourne") %>%
+  filter(tm.res != "draw") %>%
   # glimpse()
   ggplot(aes(x = tm.res, y = tm.Q4.acc)) +
   geom_hline(aes(yintercept = acc.avg), colour = "grey") +
   geom_boxplot() +
   facet_grid(~ seas) +
-  geom_text(aes(label = games, y = 0.1)) +
+  # geom_text(aes(label = games, y = 0.1)) +
   scale_y_continuous(labels = scales::percent) +
-  labs(title = "Scoring accuracy for Melbourne",
+  labs(title = "Scoring accuracy for all teams",
        subtitle = "Percentage of scoring shots that are goals. Grey line represents season\'s median",
        y = "Teams scoring accuracy",
        x = "")
@@ -91,12 +90,14 @@ calc.margin() %>%
   filter(home == 1) %>%
   mutate(Q4.margin.abs = abs(tm.Q4.lead.abs)) %>%
   ggplot(aes(x = Q4.margin.abs)) +
-  geom_histogram(binwidth = 6) +
-  # geom_freqpoly(binwidth = 6) +
-  # geom_density(aes(colour = seas)) +
-  # scale_y_continuous(labels = scales::percent)
+  # geom_bar(binwidth = 12) +
+  geom_histogram(aes(y = 12 * ..density..), binwidth = 12, colour = "#969696") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = seq(0, 150, 24), minor_breaks = seq(0, 150, 12)) +
   facet_wrap(~ seas) +
-  labs(title = "Frequency of different margins")
+  labs(title = "Frequency of different margins",
+       y = "frequency of margin",
+       x = "points margin")
 
 ```
 
@@ -108,13 +109,13 @@ calc.margin() %>%
          home = factor(home, levels = c(0, 1), labels = c("away", "home"))) %>%
   ggplot(aes(x = Q4.margin.abs, colour = seas)) +
   stat_ecdf(geom = "step", pad = FALSE) +
+  geom_hline(aes(yintercept = 0.5), colour = "grey") +
   labs(title = "Frequency of different margins",
-       y = "Cumulative number of games",
-       x = "Final margin") +
+       y = "Cumulative frequency of games",
+       x = "Final margin in points") +
   coord_cartesian(xlim = c(0, 75)) +
   scale_y_continuous(labels = scales::percent,
-                     breaks = seq(0, 1, by = 0.2)) +
-  facet_wrap( ~ home)
+                     breaks = seq(0, 1, by = 0.2))
 
 ```
 

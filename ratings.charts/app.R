@@ -2,6 +2,20 @@
 
 library(shiny)
 
+library(tidyverse)
+library(lubridate)
+library(readxl)
+
+
+data <- "./data/"
+code <- "./code/"
+
+source("code/sh.src_quick.R")     # Load data required
+source("code/sh.gen_funcs.R")     # Load functions used in the analysis
+
+optim.by <- "tm.Q4.lead.abs"      # Set up to allow optimising by different measures
+
+
 seas.sel <- 2017
 
 # WILL NEED STEPS TO IMPORT RATINGS DATA etc
@@ -67,7 +81,8 @@ server <- function(input, output) {
       mutate(opp.abbr = tm.abbr,
              lbl = paste0(opp.abbr, ": ", if_else(tm.Q4.lead.abs > 0, "+", ""), tm.Q4.lead.abs),
              tm.win = factor(sign(tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")),
-             op.win = factor(sign(-tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")))
+             op.win = factor(sign(-tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win"))) %>%
+      left_join(tm.map, by = "tm")
     
     rtngs.plot.data %>%
       # filter(seas == input$seas) %>%
@@ -77,13 +92,17 @@ server <- function(input, output) {
       geom_line(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
                 aes(y = rating.tm, group = tm), na.rm = TRUE, colour = "blue") +
       geom_point(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
-                 aes(y = rating.tm, fill = tm.win), na.rm = TRUE, shape = 21, colour = "blue") +
+                 aes(y = rating.tm, fill = tm.win), na.rm = TRUE, shape = 21, colour = "blue", size = 2) +
       geom_point(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
-                 aes(y = rating.opp, fill = op.win), na.rm = TRUE, shape = 21, colour = "black") +
+                 aes(y = rating.opp, fill = op.win), na.rm = TRUE, shape = 21, colour = "black", size = 2) +
       geom_text(data = rtngs.plot.data %>% filter(tm == input$tm.sel),
                 aes(label = lbl, y = rating.opp),
                 size = 5, angle = 90, colour = "black", hjust = "bottom",
                 nudge_y = 10, alpha = 0.75) +
+      ggrepel::geom_text_repel(data = rtngs.plot.data %>% filter(rnd %in% c(23)),
+                               aes(label = tm.abbr.y, y = rating.tm), colour = "grey", nudge_x = 1, segment.color = "#737373") +
+      ggrepel::geom_text_repel(data = rtngs.plot.data %>% filter(rnd %in% c(1)),
+                               aes(label = tm.abbr.y, y = rating.tm), colour = "grey", nudge_x = -1, segment.color = "#737373") +
       labs(title = paste0(input$tm.sel, "'s rating through ", input$seas),
            x = "round", y = "rating at start of round") +
       scale_fill_manual("", values = c("win" = "blue", "loss" = "white", "draw" = "grey")) +

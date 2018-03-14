@@ -3,38 +3,481 @@ title: "AFL Tipping Blog Report"
 output: html_notebook
 ---
 
+```{r setup, include=FALSE}
+
+source("setup.R", chdir = FALSE)
+
+source("src_quick.R", chdir = FALSE)
+
+source("gen_funcs.R", chdir = FALSE)
+
+# Load data for analysis
+# source("gen_usecases.R")
+
+theta <- 400
+k.fact <- 40
+p.fact <- 0.0464  # taken from The Arc Footy
+
+# Select game statistic to base ratings on
+optim.by <- "tm.Q4.lead.abs" #also tm.Q4.lead.rel.sd, tm.Q4.lead.abs
+
+```
+
 
 ## Introduction
+Just like many other high-profile sports with an extended round-robin series, complementary competions have spun off the AFL season for amateurs followers.  These tipping competions are particularly prevalent in work environments and social groups and are quite distinct from betting competions.  The most frequent format, by far, for tipping competions features tippers submitting a tip for each game of the round, with the scores tallied at the end of the round.
 
+Can data science find the "silver bullet" to tip AFL winners?  Many punters would love to know.  This blog reports on some analysis of AFL results since 2013 and determines if statistical models do actually offer the "silver bullet".
+
+Even though I haven't had time to tune the model, the results are surprisingly positive.
+
+Along the way, I've found answers to questions burning at the back of my mind for years, just waiting for an opportunity to get my hands on the data and do the analysis.  This is what I've found...
 
 ## AFL Tipping for Beginners
 
-Here's a quick introduction to AFL tipping for people with more diverse interests than me.
+Here's a quick introduction to AFL tipping for people who follow Aussie Rules Football less than me.
 
-The AFL competition consists of 18 teams across Australia who each play 22 games over 23 rounds in a season that runs from mid-March to August.  In recent seasons, most teams have one bye around mid-season.  The top 8 teams after round 23 the compete in the "Finals", with a Grand Final played at the end of September or start of October.
-
-
+The AFL competition consists of 18 teams across Australia who each play 22 games over 23 rounds in a season that runs from mid-March to August.  In recent seasons, most teams have enjoyed one bye around mid-season.  The top 8 teams after round 23 then compete in the "Finals", with a Grand Final played at the end of September or start of October.
 
 ## Basic statistics about AFL Games
+The most fundamental statistic in an AFL game is each team's score at the end of a game and the margin betwen the winning and losing team, and the most frequent margin in most recent seasons has been 12 to 24 points.  In the 2017 season, about 24% of games had a margin in this range, with about 22% of games decided by less than 12 points (2 goals).
 
+```{r margins.plot, echo=FALSE}
 
+marg.bin.size <- 12
+
+calc.margin() %>%
+  filter(home == 1) %>%
+  mutate(Q4.margin.abs = abs(tm.Q4.lead.abs),
+         marg.bin = floor((Q4.margin.abs) / marg.bin.size) * marg.bin.size) %>%
+  ggplot(aes(x = marg.bin)) +
+  geom_bar(aes(y = ..prop..), colour = "#969696") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = seq(0, 150, 24)) +
+  facet_wrap(~ seas) +
+  labs(title = "Frequency of different margins",
+       y = "frequency of margin",
+       x = "points margin")
+
+```
+
+Season 2017 was a better season for the liklihood of close results, with about half of the games decided by 23 points or less and about 87% of games decided by less than 60 points (10 goals).
+
+```{r Frequency of different margins absolute, echo=FALSE}
+calc.margin() %>%
+  filter(home == 1) %>%
+  mutate(Q4.margin.abs = abs(tm.Q4.lead.abs),
+         ten.gl.perc = mean(if_else(seas == 2017, if_else(Q4.margin.abs <= 60, 1, 0), NaN), na.rm = TRUE),
+         seas17.med = median(if_else(seas == 2017, Q4.margin.abs, NaN), na.rm = TRUE),
+         seas = factor(seas)) %>%
+  ggplot(aes(x = Q4.margin.abs, colour = seas)) +
+  stat_ecdf(geom = "step", pad = FALSE) +
+  geom_hline(aes(yintercept = 0.5), colour = "grey") +
+  geom_segment(aes(x = 0, xend = 60, y = ten.gl.perc, yend = ten.gl.perc), na.rm = TRUE,
+               colour = "grey", size = 0.1) +
+  geom_segment(aes(x = 60, xend = 60, y = 0, yend = ten.gl.perc), na.rm = TRUE,
+               colour = "grey", size = 0.1) +  
+  geom_segment(aes(x = seas17.med, y = 0, xend = seas17.med, yend = 0.5),
+               colour = "grey", size = 0.1, na.rm = TRUE) +
+  labs(title = "Frequency of different margins",
+       y = "Cumulative frequency of games",
+       x = "Final margin in points") +
+  coord_cartesian(xlim = c(0, 75)) +
+  scale_y_continuous(labels = scales::percent,
+                     breaks = seq(0, 1, by = 0.2))
+
+```
+
+Other statistics captured but only partly used in this analysis with potential for later include:  
+
+* The relative scores of the two teams rather than the absolute scores.  
+    + Scores of 60 points to 50, a margin of 10, may be just as significant as 120 points to 100, even though the margin is half.
+* Scores at 3/4 time of each game.  
+    + Scoring in the last quarter is sometimes less an indication of the strength of the teams when the result of the game is beyond doubt and the intensity drops off (i.e. "junk time").  
+* The break down of the scores into goals and behinds.  
+    + Teams score by either kicking a goal, 6 points, between the middle posts or a "behind", 1 point, when a kick for goal goes either side of the middle posts or the ball is touched before crossing the goal line.  
+    + Typically, around 54% of scoring shots are goals, though this can easily range from 40% to 65% with more extreme variances occassionally occurring.  
+    + There is a clear association betwen kicking accuracy and winning, though causality is unclear.  Inaccuracy can be due to bad luck or poor weather, poor kicking skills or strong defensive pressure by an opponent, which leads to rushing kicks for goal or kicking for goal from a more difficult positions on the field.  
+* The team playing at home and the distance their opponent had to travel.  
+* The number of days since each team's previous match, which is usually between 6 and 8 days.
+
+**Scoring Accuracy**  
+Losing teams tend to see only about half of their scoring shots converted to goals, whereas winning teams tend to see 55% or more of their scoring shots converted as goals.
+
+```{r Scoring accuracy plot, echo=FALSE}
+
+q4.acc.df() %>%
+  group_by(seas) %>%
+  mutate(acc.avg = median(tm.Q4.acc, na.rm = TRUE)) %>%
+  ungroup() %>%
+  filter(tm.res != "draw") %>%
+  ggplot(aes(x = tm.res, y = tm.Q4.acc)) +
+  geom_hline(aes(yintercept = acc.avg), colour = "#737373") +
+  geom_hline(aes(yintercept = 0.5), colour = "black", linetype = 2) +
+  geom_boxplot() +
+  facet_grid(~ seas) +
+  # geom_text(aes(label = games, y = 0.1)) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0.1, 0.9, 0.1)) +
+  labs(title = "Scoring accuracy for all teams",
+       subtitle = "Percentage of scoring shots that are goals. Grey line represents season\'s median",
+       y = "Teams scoring accuracy",
+       x = "")
+
+```
 
 ## The Tipping Model
+The major goal of this analysis was a model to tip AFL results and to compare it against various models.
+
+The tipping model works by building a rating score for each team, which is updated after each round based on how the team performed in game against expectations.
+
+For example, in round 1 of 2017, Sydney played Port Adelaide.  Before the game, the model calculated Sydney's rating as 1667 (based on results in 2016), and Port Adelaide's rating as 1530.  Based on these ratings, the model predicted that Sydney would win by just under 17 points and estimated its likelihood of winning at 0.69.
+
+If Sydney had won this game by 17 points or more, its rating score going into round 2 would increase and Port Adelaide's rating would decrease.  Alternatively, if Sydney had won the game by less than expected (17 points), its rating would have decreased even though it won.  The key aspect of the model is that a team's rating move up or down after each round based on whether or not the team exceeds expectations, which depends on the rating of their opponent.
+
+As it happened, Port Adelaide won the match by 28 points, so the model updated the ratings of Sydney and Port Adelaide to 1648 and 1549, an adjustment of 19 points up or down for both teams.  If Port Adelaide had won by even more, the adjustment would be even more.
+
+The tipping model is a variation on the commonly used [Elo rating system](https://en.wikipedia.org/wiki/Elo_rating_system), variations of which are used by FIFA for their world rankings and the popular Nate Silver's [FiveThirtyEight](https://fivethirtyeight.com/features/how-we-calculate-nba-elo-ratings/).  My model was adapted from these sites and in particular from [The Arc Footy, graphed](https://thearcfooty.com/2016/12/29/introducing-the-arcs-ratings-system/) site.  As The Arc suggests, Elo is a solid and relatively simple general purpose model that produces good estimates of margins and likelihood of winning, though it is less accurate than more advanced algorithms.
+
+**Ratings Ladder at the end of 2017 Home and Away Season**  
+
+This chart shows the ratings at the end of the 2017 Home and Away Season, i.e. before the finals.  AFL fans may be surprised to see that Richmond is only fourth on this ladder, but it is worth remembering that Richmond were only 3rd on the ladder with a modest percentage of 118% (flattered by 2 convincing wins in the last 2 rounds).  In summary, Richmond won almost all of the games it was expected to but had fewer strong wins.  It may also surprise to see Sydney second on the rankings when they finished 6th on the AFL ladder.  However, Sydney started the sesaon quite slowly and finished very strongly with a percentage of 127%.
+
+```{r ratings.ladder, echo=FALSE}
+full.ratings %>%
+  filter(seas == max(seas),
+         !is.na(rnd)) %>%
+  filter(rnd == max(rnd)) %>%
+  ggplot(aes(x = fct_reorder(tm, rating), y = rating, 
+             colour = tm, fill = tm)) +
+  geom_col(show.legend = FALSE, alpha = 0.5) +
+  geom_hline(aes(yintercept = 1500), colour = "grey") +
+  coord_flip(ylim = c(1250, 1700)) +
+  labs(title = "Ratings ladder after last round of 2017",
+       x = "")
+
+```
 
 
-### Comparing with Betting Agencies
+
+```{r fig.width=13, fig.height=6, echo=TRUE}
+
+rtngs.plot.data <- calc.margin(afl.results) %>%
+  select(seas:home, !!as.name(optim.by)) %>%
+  filter(seas == 2017) %>%
+  # mutate(seas = factor(seas, levels = seas.rng, labels = seas.rng),
+  #        rnd = factor(rnd)) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
+  rename(rating.tm = rating) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
+  rename(rating.opp = rating) %>%
+  left_join(tm.map, by = c("opp" = "tm")) %>%
+  mutate(opp.abbr = tm.abbr,
+         lbl = paste0(opp.abbr, ": ", if_else(tm.Q4.lead.abs > 0, "+", ""), tm.Q4.lead.abs),
+         tm.win = factor(sign(tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win")),
+         op.win = factor(sign(-tm.Q4.lead.abs), levels = -1:1, labels = c("loss", "draw", "win"))) %>%
+  left_join(tm.map, by = "tm")
+
+# 
+# rtngs.plot.data %>%
+#   glimpse()
+
+rtngs.plot.data %>%
+  # glimpse()
+  ggplot(aes(x = rnd, y = rating.tm)) +
+  geom_hline(aes(yintercept = 1500), colour = "black", alpha = 0.5) +
+  geom_line(aes(group = tm), colour = "grey", na.rm = TRUE) +
+  geom_line(data = rtngs.plot.data %>% filter(tm == "Richmond"),
+            aes(y = rating.tm), na.rm = TRUE, colour = "blue") +
+  geom_point(data = rtngs.plot.data %>% filter(tm == "Richmond"),
+            aes(y = rating.tm, fill = tm.win), na.rm = TRUE, shape = 21, colour = "blue") +
+  geom_point(data = rtngs.plot.data %>% filter(tm == "Richmond"),
+            aes(y = rating.opp, fill = op.win), na.rm = TRUE, shape = 21, colour = "black") +
+  geom_text(data = rtngs.plot.data %>% filter(tm == "Richmond"),
+             aes(label = lbl, y = rating.opp), 
+            size = 3, angle = 90, colour = "black", hjust = "bottom",
+            nudge_y = 5, alpha = 0.75) +
+  ggrepel::geom_text_repel(data = rtngs.plot.data %>% filter(rnd %in% c(23)),
+            aes(label = tm.abbr.y, y = rating.tm), colour = "grey", nudge_x = 1, segment.color = "#737373") +
+  ggrepel::geom_text_repel(data = rtngs.plot.data %>% filter(rnd %in% c(1)),
+            aes(label = tm.abbr.y, y = rating.tm), colour = "grey", nudge_x = -1, segment.color = "#737373") +
+  labs(title = "Richmond's rating through 2017",
+       x = "round", y = "rating at start of round") +
+  scale_fill_manual("", values = c("win" = "blue", "loss" = "white", "draw" = "grey")) +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(limits = c(1, 24))
+
+```
 
 
 ## How Good is the Model?
+Surprisingly good, is the short answer, given that I am yet to optimise the parameters or experiment with more sophisticated algorithms.
+
+### Comparing with Betting Agencies
+For this analysis, I made a number of comparisons with the odds and line margins offered by betting agencies using data downloaded from [Australia Sports Betting](http://www.aussportsbetting.com/data/historical-afl-results-and-odds-data/).
 
 
+**Results**  
+Out of the 4 seasons from 2014 to 2017, the model exceeded the betting agencies in 2014 and almost tied in 2017.
+
+```{r multi-season.res.tips, echo=FALSE}
+
+act.w.pred.bet <- act.with.pred(afl.results, optim.by)%>%
+  filter(home == 1, seas >= 2014) %>%
+  left_join(aus.bet, by = c("seas", "tm" = "tm.hm", "game.date" = "date"),
+            suffix = c(".mod", ".bet")) %>%
+  select(seas:Q4.diff.pred.tm, rating.opp, pred.hm:marg.diff.abs,
+         Q4.diff.pred.bet = Q4.diff.pred,
+         pred.res.bet) %>%
+  rename(hm.mod.pred = pred.hm,
+         hm.act = act.hm,
+         mod.res = pred.res.mod,
+         mod.act.diff.abs = marg.diff.abs,
+         bet.res = pred.res.bet) %>%
+  mutate(bet.act.diff.abs = abs(Q4.diff.pred.bet - tm.Q4.lead.abs))
+
+# act.w.pred.bet %>% glimpse()
+
+act.w.pred.bet %>%
+  select(seas, rnd, mod.res, bet.res) %>%
+  gather(key = pred.src, value = pred.sc, mod.res, bet.res) %>%
+  # mutate( rnd = factor(rnd),
+  mutate( pred.src = fct_recode(pred.src, "model" = "mod.res", 
+                              "bet" = "bet.res"),
+          rnd.rng = factor((rnd - 1) %/% 5, levels = 0:4, labels = c("1-5", "6-10", "11-15", "16-20", "20-23"))) %>%
+  group_by(seas, pred.src) %>%
+  summarise(pred.res = sum(pred.sc, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot(aes(x = factor(seas), y = pred.res, fill = pred.src)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_cartesian(ylim = c(120, 150)) +
+  scale_fill_manual("",
+                      values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  labs(title = "Season scores for model versus betting agency",
+       subtitle = "Higher scores are better",
+       y = "Correct number of tips",
+       x = "Season")
+
+```
+
+**Predicting the margin**  
+In terms of predicting the game margins, the model and betting agencies are remarkably close.  In most season's, the betting agencies' margin estimates are slightly better though the model peformed better in the 2017 season.
+```{r multi-season.res.marg, echo=FALSE}
+
+act.w.pred.bet %>%
+  select(seas, rnd, mod.act.diff.abs, bet.act.diff.abs) %>%
+  gather(key = pred.src, value = pred.act.diff, mod.act.diff.abs, bet.act.diff.abs) %>%
+  # mutate( rnd = factor(rnd),
+  mutate( pred.src = fct_recode(pred.src, "model" = "mod.act.diff.abs", 
+                              "bet" = "bet.act.diff.abs"),
+          rnd.rng = factor((rnd - 1) %/% 5, levels = 0:4, labels = c("1-5", "6-10", "11-15", "16-20", "20-23"))) %>%
+  group_by(seas, pred.src) %>%
+  mutate(pred.act.mad = mean(pred.act.diff, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot(aes(x = factor(seas), y = pred.act.diff, colour = pred.src)) +
+  geom_boxplot(na.rm = TRUE) +  # I attempted using cut_interval but the colour dimension got lost
+  geom_point(aes(y = pred.act.mad), position = position_dodge(.8)) +
+  scale_colour_manual("",
+                      values = c("bet" = "#d8b365", "model" = "#8c510a")) +
+  labs(title = "Distribution of predicted margin errors",
+       subtitle = "Lower scores are better. Average errors shown inside boxes",
+       y = "Predicted margin error",
+       x = "Rounds")
+
+```
+
+**Game by Game Review**
+
+This comprehensive plot shows all 198 games in the 2017 season.
+
+Each game is represented as a box and is colour coded to show if the model predicted correctly, whereas the box's margin indicates if the betting agencies tipped the game correctly.
+
+Inside each box are 3 bars, representing the final margin in favour of the team, the model's predicted margin and the betting agencies' predicted margin.
+
+This chart shows that there are very few sequences of incorrect tips by the model.  Sydney was incorrectly tipped for rounds 1 to 6 which was due to their surprisingly slow start given their momentum at the end of the 2016 season.  The model also incorrectly tipped the Collingwood games from rounds 2 to 7, which was matched by the betting agencie's incorrect tips.
+
+```{r fig.width=13, echo=FALSE}
+
+rtngs.plot.data <- calc.margin(afl.results) %>%
+  select(seas:home, !!as.name(optim.by)) %>%
+  filter(seas == 2017) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "tm")) %>%
+  rename(rating.tm = rating) %>%
+  left_join(full.ratings, by = c("seas", "rnd", "opp" = "tm"), suffix = c(".tm", ".aw")) %>%
+  rename(rating.opp = rating) %>%
+  left_join(tm.map, by = "tm") %>%
+  left_join(aus.bet.merge(aus.bet), by = c("game.date" = "game.date", "tm" = "tm")) %>%
+  mutate(mod.corr = factor(sign(tm.Q4.lead.abs * Q4.diff.pred.tm),
+                           levels = -1:1,
+                           labels = c("Inc", "Draw", "Corr")),
+         bet.tip = sign(tm.Q4.lead.abs * bet.pred.marg),
+         bet.tip = factor(2 - bet.tip, levels = 1:3, labels = c("correct", "draw", "incorrect")))
+
+
+rtngs.plot.data %>%
+  # filter(tm == "North Melbourne", rnd == 15) %>%
+  select(tm.abbr, rnd,
+         actual = tm.Q4.lead.abs,
+         model = Q4.diff.pred.tm,
+         bet = bet.pred.marg,
+         mod.corr,
+         bet.tip,
+         rating.tm) %>%
+  gather(key = "meas",
+         value = "margin",
+         actual:bet) %>%
+  mutate(tm.abbr = fct_reorder2(tm.abbr, rnd, rating.tm),
+         meas = factor(meas, levels = c("bet", "model", "actual"))) %>%
+  ggplot(aes(x = meas, y = margin, fill = meas)) +
+  scale_y_continuous(breaks = seq(-60, 60, 24)) +
+  geom_rect(xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, 
+            aes(fill = mod.corr, linetype = bet.tip), alpha = 0.25, colour = "black", show.legend = FALSE) +
+  geom_hline(aes(yintercept = 0), colour = "black", alpha = 0.5) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual("",
+                      values = c("actual" = "#01665e", "model" = "#8c510a", 
+                                 "bet" = "#d8b365", "Corr" = "#5ab4ac", "Inc" = "white", "Draw" = "grey"),
+                      labels = c("actual" = "actual margin", "model" = "model\`s margin", 
+                                 "bet" = "bet\'s margin", "Corr" = "model correct", "Inc" = "", "Draw" = "draw")) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(subtitle = "each tick = 4 goals", y = "",
+       title = "2017 Round by Round Margins and Tipping Accuracy") +
+  facet_grid(tm.abbr ~ rnd, switch = "y") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        strip.text.y = element_text(size = 7, angle = 180),
+        legend.position = "bottom",
+        legend.text = element_text(size = 7),
+        legend.title = element_text(size = 7))
+
+
+```
+
+### Performance of Estimated Likelihood
+
+These plots show that the distribution of estimated likelihoods (probabilities) is approximately bell shaped, which is to be expected.  Fortunately, the games with a higher estimated likelihood seem to associate with more wins, which is to be expected.
+
+```{r hist.probs, warning=FALSE, echo=FALSE}
+
+pred.bins <- act.with.pred(afl.results, optim.by) %>%
+  # filter(seas == 2017, tm == "Melbourne") %>%
+  arrange(rnd) %>%
+  select(seas, rnd, tm, opp, win.prob.tm, act.hm) %>%
+  mutate(prob.bin = (round(win.prob.tm / 0.05) * 0.05),
+         win.tm = (act.hm > 0)) %>%
+  group_by(seas, prob.bin) %>%
+  summarise(win.avg = mean(win.tm, na.rm = TRUE),
+            games = n()) %>%
+  ungroup()
+
+act.with.pred(afl.results, optim.by) %>%
+  filter(seas > 2013) %>%
+  arrange(rnd) %>%
+  select(seas, rnd, tm, opp, win.prob.tm, act.hm) %>%
+  mutate(act.hm = factor(act.hm, levels = -1:1, labels = c("loss", "draw", "win")) ) %>%
+         # win.prob.tm = round(win.prob.tm / 0.05) * 0.05) %>%
+  ggplot(aes(x = win.prob.tm)) +
+  geom_bar(stat = "count", aes(fill = act.hm), colour = "#737373", binwidth = 0.1) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_x_continuous(breaks = seq(0, 1, .1)) +
+  scale_fill_manual("", values = c("loss" = "#f5f5f5", "draw" = "#c7eae5", "win" = "#01665e")) +
+  labs(title = "Distribution of model's probabilities",
+       x = "Estimated probability of home team win",
+       y = "Frequency through the season") +
+  facet_wrap( ~ seas)
+
+```
+
+This plot shows the prevalence of home teams winning, based on the estimated likelihood of the home team winning.  For instance, there are 10 games out of 198 in 2017 where the estimated likelihood of the home team winning was around 0.20, meaning that we would expect the home team to win 2 of those 10 games (20%).  I actual fact, 6 of those 10 home teams with 0.2 likelihood of winning actually won (60%).
+
+The diagonal line represents where we expect the bars to end.
+
+```{r plot probs vs act, echo=FALSE}
+pred.bins <- act.with.pred(afl.results, optim.by) %>%
+  # filter(seas == 2017, tm == "Melbourne") %>%
+  arrange(rnd) %>%
+  select(seas, rnd, tm, opp, win.prob.tm, act.hm) %>%
+  mutate(prob.bin = (round(win.prob.tm / 0.05) * 0.05),
+         win.tm = (act.hm > 0)) %>%
+  group_by(seas, prob.bin) %>%
+  summarise(win.avg = mean(win.tm, na.rm = TRUE),
+            games = n()) %>%
+  ungroup()
+
+pred.bins %>%
+  filter(seas == 2017) %>%
+  ggplot(aes(prob.bin, win.avg)) +
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), colour = "grey") +
+  geom_point(aes(size = games), alpha = 0.5) +
+  geom_point(size = 0.6) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), expand = c(0, 0.0)) +
+  scale_y_continuous(labels = scales::percent, expand = c(0, 0.05), breaks = seq(0, 1, 0.1)) +
+  labs(title = "Estimated likelihood performance in 2017",
+       x = "Estimated likelihood of the home team winning",
+       y = "Share of games won") +
+  facet_wrap( ~ seas)
+
+```
+There are a few interesting features in this chart:  
+
+* There are no likelihoods less than 0.075 and none greater than 0.875, suggesting that the model may struggle with outliers.
+* Out of the 16 (rounded) likelihoods between 0 and 1, 4 are clearly below the line, 1 (0.70) is on the line and 11 of the 16 are above the line.  
+    + The probability of getting 11 or more above expectations, assuming a 50% chance, is `r scales::percent(pbinom(10, 16, 0.5, FALSE))`.  
+    + This suggests that there is a bias to underestimating the home team's likelihood, which is plausible as the model is yet to factor in home-ground advantage.
+* That said, the 3 likelihoods which are clearly below the 50-50 line are 0.35 to 0.45.  
+    + If the model "corrected" for these likelihoods, then these tips would swing from correctly forecasting a loss to incorrectly forecasting a win.
+    
+    
+**Probability Performance for 4 Seasons**  
+
+A review of the likelihoods over the 4 seasons suggests that 2017 with it's tendency to understate the likelihood may be an anomoly.  2016 is similar though 2015 appears to overestimate likelihoods and 2014 appears more like what we expect.
+```{r prob.perf.4.seasons, echo=FALSE}
+pred.bins %>%
+  filter(seas >= 2014) %>%
+  ggplot(aes(prob.bin, win.avg)) +
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), colour = "grey") +
+  geom_point(aes(size = games), alpha = 0.5) +
+  geom_point(size = 0.6) +
+  coord_cartesian(xlim = c(0, 1)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), expand = c(0, 0.05)) +
+  scale_y_continuous(labels = scales::percent, expand = c(0, 0.05), breaks = seq(0, 1, .2)) +
+  labs(title = "Estimated likelihood performance",
+       x = "Estimated likelihood of the home team winning",
+       y = "Share of games won") +
+  facet_wrap( ~ seas) +
+  theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+
+####Final word on the model
+Winning a tipping competition will still require few ounces of luck, particularly in larger competitions.  The winner will only win by taking risks.
+
+My strategy for the new season will be to adopt the model's recommendations for the first half of the season.  For the second half, I'll start to take risks based how I'm placed against the leaders.  For instance, I may start tipping teams even if the models estimated likelihood is only 0.45 or even 0.4.  To make up the lead, I would need these longer-shots to win and for the leader to choose the favourite.
 
 ## This is just the beginning
 
-Optimising the parameters.
+**Optimising the parameters**  
+When I get time, I'll go back to the Elo model parameters and tweak them to optimise my score.
 
-Introducing new parameters to the model.
+**Introducing new parameters to the model**  
+Again, when I get time, I will re-run the Elo model with alternative parameters.  In particular, I will try different statistics, such as the score ratio rather than the score difference, to see if they offer better likelihood estimates in some circumstances.  I also intend to test for the significance of home team advantage and days' break since the previous game.
 
-Using more advanced algorithms.
+**Using more advanced algorithms**  
+Over time, I intend to investigate more sophisticated algorithms.  In particular, I will develop a logistic regression model.
+
+## What I learnt in this analysis
+**Scraping data from a website**  
+This was the first R application I've built that routinely scrapes data from a website (the [AFL Tables](https://afltables.com/afl/afl_index.html)).
+
+**Moderately complex data wrangling**  
+The match results data was in an extremely untidy format and wrangling the data into a tidy structure was a signficant learning curve.
+
+**More sophisticated plotting**  
+There are features of some of these charts that I'm using for my first time.  Since I started this analysis, there have been numerous times when I've had an idea from nowhere that has forced me to learn new functionality.  I hope that you, the reader, have found these charts somewhat intuitive, interesting and enlightening.
 
 ### If only I can get more data
+One irritation I have with the AFL competition is the difficulty in sourcing useful data to feed the amatear analyst.  As an example, I had to resort to scraping match results from an unoffical website, [AFL Tables](https://afltables.com/afl/afl_index.html), even though many high profile professional sports make the data freely available to download.
+
+The league, most clubs and the media subscribe to [Champion Data](https://www.championdata.com/index.php/sport/afl.html) and some of the data is available in untidy format in some newspapers, though the data is difficult to scrape from websites and, in any case, is subject to copyright.
+
+One day, I would love to analyse data on inside-50s, tackles, effective disposals, contested ball, disposal efficiency and even scoring shot locations.
