@@ -17,16 +17,27 @@ q4.acc.df <- function(res.df = afl.results) {
            tm2.Q4.tot = tot.sc(tm2.Q4.G, tm2.Q4.B),
            tm1.res = if_else(tm1.Q4.tot > tm2.Q4.tot, 1,
                              if_else(tm1.Q4.tot == tm2.Q4.tot, 0, -1)),
-           tm1.rel.acc = tm1.Q4.acc - tm2.Q4.acc) 
+           tm1.rel.acc = tm1.Q4.acc - tm2.Q4.acc,
+           tm1.Q4.ratio.sc = tm1.Q4.tot / (tm1.Q4.tot + tm2.Q4.tot),
+           tm1.Q4.ratio.sh = (tm1.Q4.G + tm1.Q4.B) / ((tm1.Q4.G + tm1.Q4.B) + ((tm2.Q4.G + tm2.Q4.B))),
+           hm = 1)
   
   df %>%
-    select(seas, tm = tm1, tm.Q4.acc = tm1.Q4.acc, tm.res = tm1.res,
-           tm.rel.acc = tm1.rel.acc) %>%
+    select(seas, rnd, gm, tm = tm1, tm.Q4.acc = tm1.Q4.acc, tm.res = tm1.res,
+           tm.rel.acc = tm1.rel.acc,
+           tm.Q4.ratio.sc = tm1.Q4.ratio.sc,
+           tm.Q4.ratio.sh = tm1.Q4.ratio.sh,
+           hm) %>%
     bind_rows(df %>%
                 mutate(tm2.res = -sign(tm1.res),
                        tm2.rel.acc = -tm1.rel.acc) %>%
-                select(seas, tm = tm2, tm.Q4.acc = tm2.Q4.acc, tm.res = tm2.res,
-                       tm.rel.acc = tm2.rel.acc)) %>%
+                select(seas, rnd, gm, tm = tm2, tm.Q4.acc = tm2.Q4.acc, tm.res = tm2.res,
+                       tm.rel.acc = tm2.rel.acc,
+                       tm.Q4.ratio.sc = tm1.Q4.ratio.sc,
+                       tm.Q4.ratio.sh = tm1.Q4.ratio.sh) %>%
+                mutate(tm.Q4.ratio.sc = 1 - tm.Q4.ratio.sc,
+                       tm.Q4.ratio.sh = 1 - tm.Q4.ratio.sh,
+                       hm = 0)) %>%
     mutate(tm.res = factor(tm.res, levels = -1:1, labels = c("loss", "draw", "win"))) %>%
     arrange(seas, tm)
   

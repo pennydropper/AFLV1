@@ -63,6 +63,51 @@ q4.acc.df() %>%
 Not surprisingly, there is a clear association between the relative scoring accuracy and whether a team wins the match.
 
 
+Looking at a scatterplot of the share of the total scoring shots versus the score of the total score, there is a small number of games where teams had a smaller number of scoring shots but still won the game.
+
+```{r scoring shots vs total scores}
+
+q4.acc.df() %>%
+  filter(seas == 2017) %>%
+  ggplot((aes(x = tm.Q4.ratio.sh, y = tm.Q4.ratio.sc))) +
+  geom_point(aes(colour = tm.res)) +
+  # geom_abline(aes(intercept = 0, slope = 1), linetype = 2) +
+  geom_vline(aes(xintercept = 0.5), linetype = 2) +
+  geom_hline(aes(yintercept = 0.5), linetype = 2) +
+  labs(title = "Ratio of scoring shots vs ratio of final scores in 2017",
+       x = "share of total scoring shots for the game",
+       y = "share of total scores for the game") +
+  geom_text(aes(label = "more shots but lost", x = 0.9,
+                y = 0.45), data = tibble(x = 1), vjust = "bottom", hjust = "right") +
+  geom_text(aes(label = "more shots and won", x = 0.9,
+                y = 0.55), data = tibble(x = 1), vjust = "top", hjust = "right") +
+  geom_text(aes(label = "fewer shots and lost", x = 0.1,
+                y = 0.45), data = tibble(x = 1), vjust = "bottom", hjust = "left") +
+  geom_text(aes(label = "fewer shots but won", x = 0.1,
+                y = 0.55), data = tibble(x = 1), vjust = "top", hjust = "left")
+
+```
+
+About 1 game in 9 sees a team win despite fewer scoring shots.
+
+```{r games won with fewer scoring shots}
+
+q4.acc.df() %>%
+  filter(tm.Q4.ratio.sh < 0.5, tm.Q4.ratio.sc >= 0.5) %>%
+  ggplot((aes(x = seas))) +
+  geom_bar() +
+  coord_flip() +
+  scale_y_continuous("number of games", position = "right",
+                     sec.axis = sec_axis(trans = (~. / 198), labels = scales::percent,
+                                         name = "Share of all games")) +
+  labs(title = "Games won by the team with fewer scoring shots",
+       subtitle = "About 1 game in 9 sees a team win despite fewer scoring shots",
+       x = "season")
+
+```
+
+
+
 ### Distribution of winning margins
 
 ```{r}

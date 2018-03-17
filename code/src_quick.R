@@ -54,3 +54,9 @@ afl.results <- read_rds(paste0(data, "afl.results.rds"))
 
 full.ratings <- read_rds(paste0(data, "full.ratings.rds"))
 
+
+# Import some tipping scores ----------------------------------------------
+
+# write_rds(tipping.res, paste0(data, "tipping.res.rds"))
+
+tipping.res <- read_rds(paste0(data, "tipping.res.rds"))
