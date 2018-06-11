@@ -1,0 +1,114 @@
+---
+title: "Enter tips"
+output: html_notebook
+date: 17/4/2018
+---
+
+```{r setup, include=FALSE}
+
+source("setup.R", chdir = FALSE)
+
+source("src_quick.R", chdir = FALSE)
+
+source("gen_funcs.R", chdir = FALSE)
+
+
+# Load data for analysis
+# source("gen_usecases.R")
+
+theta <- 400
+k.fact <- 40
+p.fact <- 0.0464  # taken from The Arc Footy
+
+# Select game statistic to base ratings on
+optim.by <- "tm.Q4.lead.abs" #also tm.Q4.lead.rel.sd, tm.Q4.lead.abs
+
+```
+
+
+## Load previous round’s results
+
+```{r Load Prev Round}
+
+afltables <- 'http://afltables.com/afl/seas/'
+
+afl.season.curr <- read.afl.games(seas = 2018)
+
+games.played <- afl.season.curr[[1]]
+
+```
+
+
+### Refresh the ratings
+
+```{r}
+
+# Load previous ratings
+# full.ratings <- read_rds(paste0(data, "full.ratings.rds"))
+
+ratings.last.sav <- full.ratings %>% 
+  filter(seas == max(seas),
+         !is.na(rnd)) %>% 
+  filter(rnd == max(rnd)) %>%
+  glimpse()
+```
+
+
+### Refresh ratings for new results
+
+```{r}
+
+ratings.new <- calc.ratings(games.played, 2018, ratings.last.sav) %>% arrange(seas, rnd, tm)
+
+
+```
+
+### Calculate new round's tips
+
+```{r}
+
+pred.nxt.rnd(ratings.new, afl.season.curr[[2]]) %>%
+  mutate(win.prob = scales::percent(win.prob),
+         win.marg = round(Q4.diff.pred, 1)) %>% 
+  select(rnd, gm, tm1,
+         win.prob,
+         tm2,
+         win.marg)
+```
+
+### Ratings Ladder
+```{r}
+last.rnd <- games.played %>%
+  filter(seas == max(seas)) %>% 
+  filter(rnd == max(rnd)) %>% 
+  calc.margin(.) %>% 
+  left_join(tm.map, by = c("opp" = "tm")) %>% 
+  select(seas:tm, opp.abbr = tm.abbr, marg = tm.Q4.lead.abs) %>% 
+  mutate(last.rnd.opp = str_c(opp.abbr, ": ", if_else(marg > 0, "+", ""), marg, sep = ""))
+```
+
+
+```{r}
+
+ratings.new %>%
+  filter(seas == max(seas),
+         !is.na(rnd)) %>%
+  filter(rnd == max(rnd) | rnd == max(rnd) - 1) %>% 
+  group_by(tm) %>% 
+  arrange(rnd) %>% 
+  mutate(rtng.prev = lag(rating),
+         rtng.delta = rating - rtng.prev) %>% 
+  filter(!is.na(rtng.delta)) %>% 
+  left_join(last.rnd, by = "tm") %>% 
+  ggplot(aes(x = fct_reorder(tm, rating), y = rating, 
+             colour = tm, fill = tm)) +
+  geom_col(show.legend = FALSE, alpha = 0.5) +
+  geom_linerange(aes(ymin = rtng.prev, ymax = rating), colour = "black") +
+  geom_point(aes(y = rtng.prev), colour = "black", size = 0.75, show.legend = FALSE) +
+  geom_hline(aes(yintercept = 1500), colour = "grey") +
+  geom_text(aes(y = 1235, label = last.rnd.opp), hjust = "left", colour = "black", size = 2.5, alpha = .75, na.rm = TRUE) +
+  coord_flip(ylim = c(1250, 1700)) +
+  labs(title = "Ratings ladder after last round",
+       x = "")
+```
+
